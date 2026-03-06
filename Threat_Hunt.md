@@ -78,7 +78,7 @@ With the scope confirmed, the next step was to establish a precise event timelin
 
 ```kql
 DeviceFileEvents
-| where FileName contains "<ransom_note_filename>"
+| where FileName contains "<want_to_cry.txt>"
 | summarize 
     FirstEvent = min(Timestamp),
     LastEvent = max(Timestamp),
@@ -103,7 +103,7 @@ With the timeline established, attention shifted to the process responsible for 
 
 ```kql
 DeviceFileEvents
-| where FileName contains "<ransom_note_filename>"
+| where FileName contains "<want_to_cry.txt>"
 | summarize EventCount = count() by InitiatingProcessFileName, 
     InitiatingProcessAccountName, InitiatingProcessCommandLine
 | sort by EventCount desc
