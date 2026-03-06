@@ -4,7 +4,7 @@
     to lock out accounts after no more than 3 invalid logon attempts, reducing the risk
     of brute-force attacks.
 .NOTES
-    Author          : 
+    Author          : Brian Brookhart
     LinkedIn        : 
     GitHub          : 
     Date Created    : 2025-03-06
