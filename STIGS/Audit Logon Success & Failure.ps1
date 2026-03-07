@@ -1,8 +1,9 @@
 #
 .SYNOPSIS
-    This PowerShell script ensures Advanced Audit Policy is configured to audit both
-    Success and Failure logon events on Windows 10, providing visibility into
-    authentication activity critical for detecting lateral movement and brute-force attacks.
+    This PowerShell script ensures the Windows 11 Advanced Audit Policy is configured
+    to audit Success and Failure for Logon, Logoff, and Account Lockout events, providing
+    full visibility into authentication activity required to detect lateral movement,
+    credential attacks, and unauthorized access.
 .NOTES
     Author          : Brian Brookhart
     LinkedIn        : 
@@ -12,17 +13,24 @@
     Version         : 1.0
     CVEs            : N/A
     Plugin IDs      : N/A
-    STIG-ID         : WN10-AU-000030
+    STIG-ID         : WN11-AU-000030
 .TESTED ON
     Date(s) Tested  : 
     Tested By       : 
-    Systems Tested  : Windows 10
+    Systems Tested  : Windows 11
     PowerShell Ver. : 5.1
 .USAGE
     Run as Administrator.
     Example syntax:
-    PS C:\> .\STIG-ID-WN10-AU-000030.ps1
+    PS C:\> .\STIG-ID-WN11-AU-000030.ps1
 #>
+
+# Confirm OS is Windows 11
+$osCaption = (Get-CimInstance Win32_OperatingSystem).Caption
+Write-Host "[INFO] Operating System: $osCaption"
+if ($osCaption -notmatch "Windows 11") {
+    Write-Host "[WARN] This script is intended for Windows 11. Detected: $osCaption. Proceeding anyway..." -ForegroundColor Yellow
+}
 
 # ------------------------------------------------------------------
 # Helper: Parse auditpol output for a given subcategory
@@ -40,7 +48,7 @@ function Get-AuditSetting {
 }
 
 # ------------------------------------------------------------------
-# Define required subcategories for Logon auditing (WN10-AU-000030)
+# Subcategories required for WN11-AU-000030
 # ------------------------------------------------------------------
 $requiredSubcategories = @(
     "Logon",
@@ -50,31 +58,57 @@ $requiredSubcategories = @(
 
 $allCompliant = $true
 
+Write-Host ""
+Write-Host "[INFO] --- Checking Advanced Audit Policy Subcategories ---" -ForegroundColor Cyan
+
 foreach ($subcategory in $requiredSubcategories) {
     $currentSetting = Get-AuditSetting -Subcategory $subcategory
-    Write-Host "[INFO] Current audit setting for '$subcategory': $currentSetting"
+    Write-Host "[INFO] '$subcategory' current setting: $currentSetting"
 
     if ($currentSetting -eq "Success and Failure") {
-        Write-Host "[PASS] '$subcategory' is already set to 'Success and Failure'." -ForegroundColor Green
+        Write-Host "[PASS] '$subcategory' is correctly set to 'Success and Failure'." -ForegroundColor Green
     } else {
         $allCompliant = $false
-        Write-Host "[REMEDIATE] Setting '$subcategory' to 'Success and Failure'..." -ForegroundColor Yellow
+        Write-Host "[REMEDIATE] '$subcategory' is '$currentSetting'. Applying 'Success and Failure'..." -ForegroundColor Yellow
 
-        # Apply via auditpol
         $result = auditpol /set /subcategory:"$subcategory" /success:enable /failure:enable 2>&1
 
         if ($LASTEXITCODE -eq 0) {
             $verified = Get-AuditSetting -Subcategory $subcategory
             if ($verified -eq "Success and Failure") {
-                Write-Host "[SUCCESS] '$subcategory' audit policy set to 'Success and Failure'." -ForegroundColor Green
+                Write-Host "[SUCCESS] '$subcategory' successfully set to 'Success and Failure'." -ForegroundColor Green
             } else {
-                Write-Host "[ERROR] Failed to verify '$subcategory' after applying. Current value: $verified" -ForegroundColor Red
+                Write-Host "[ERROR] '$subcategory' verification failed. Post-remediation value: '$verified'." -ForegroundColor Red
                 $allCompliant = $false
             }
         } else {
             Write-Host "[ERROR] auditpol command failed for '$subcategory': $result" -ForegroundColor Red
             $allCompliant = $false
         }
+    }
+    Write-Host ""
+}
+
+# ------------------------------------------------------------------
+# Ensure Advanced Audit Policy takes precedence over legacy settings
+# (SCENoApplyLegacyAuditPolicy must = 1 on Windows 11)
+# ------------------------------------------------------------------
+Write-Host "[INFO] --- Verifying SCENoApplyLegacyAuditPolicy ---" -ForegroundColor Cyan
+$lsaPath         = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
+$legacyOverride  = (Get-ItemProperty -Path $lsaPath -Name "SCENoApplyLegacyAuditPolicy" -ErrorAction SilentlyContinue).SCENoApplyLegacyAuditPolicy
+
+Write-Host "[INFO] Current SCENoApplyLegacyAuditPolicy: $legacyOverride (required: 1)"
+
+if ($legacyOverride -eq 1) {
+    Write-Host "[PASS] SCENoApplyLegacyAuditPolicy is already set to 1. Advanced audit policy takes precedence." -ForegroundColor Green
+} else {
+    Write-Host "[REMEDIATE] Setting SCENoApplyLegacyAuditPolicy to 1..." -ForegroundColor Yellow
+    Set-ItemProperty -Path $lsaPath -Name "SCENoApplyLegacyAuditPolicy" -Value 1 -Type DWord
+    $newLegacyVal = (Get-ItemProperty -Path $lsaPath -Name "SCENoApplyLegacyAuditPolicy" -ErrorAction SilentlyContinue).SCENoApplyLegacyAuditPolicy
+    if ($newLegacyVal -eq 1) {
+        Write-Host "[SUCCESS] SCENoApplyLegacyAuditPolicy set to 1. Advanced audit policy will now take precedence on Windows 11." -ForegroundColor Green
+    } else {
+        Write-Host "[ERROR] Failed to set SCENoApplyLegacyAuditPolicy. Current value: $newLegacyVal." -ForegroundColor Red
     }
 }
 
@@ -83,21 +117,7 @@ foreach ($subcategory in $requiredSubcategories) {
 # ------------------------------------------------------------------
 Write-Host ""
 if ($allCompliant) {
-    Write-Host "[PASS] All logon audit subcategories are configured correctly. STIG WN10-AU-000030 is satisfied." -ForegroundColor Green
+    Write-Host "[PASS] All logon audit subcategories are configured correctly. STIG WN11-AU-000030 is satisfied." -ForegroundColor Green
 } else {
-    Write-Host "[WARN] One or more audit subcategories may not have applied correctly. Please review output above." -ForegroundColor Yellow
-}
-
-# ------------------------------------------------------------------
-# Confirm SCE override is not blocking advanced audit policy
-# ------------------------------------------------------------------
-$registryPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
-$scenoOverride = (Get-ItemProperty -Path $registryPath -Name "SCENoApplyLegacyAuditPolicy" -ErrorAction SilentlyContinue).SCENoApplyLegacyAuditPolicy
-
-if ($scenoOverride -ne 1) {
-    Write-Host "[INFO] SCENoApplyLegacyAuditPolicy is not set to 1. Applying to ensure advanced audit policy takes precedence..." -ForegroundColor Cyan
-    Set-ItemProperty -Path $registryPath -Name "SCENoApplyLegacyAuditPolicy" -Value 1 -Type DWord
-    Write-Host "[SUCCESS] SCENoApplyLegacyAuditPolicy set to 1. Advanced audit policy will now take precedence." -ForegroundColor Green
-} else {
-    Write-Host "[PASS] SCENoApplyLegacyAuditPolicy is already set to 1." -ForegroundColor Green
+    Write-Host "[WARN] One or more audit subcategory remediations may need review. Please verify output above." -ForegroundColor Yellow
 }
