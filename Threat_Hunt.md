@@ -54,7 +54,7 @@ The first step in any ransomware-adjacent investigation is straightforward: **do
 ```kql
 DeviceFileEvents
 | where FileName contains "README" or FileName contains "RECOVER" 
-    or FileName contains "DECRYPT" or FileName contains "ransom"
+    or FileName contains "DECRYPT" or FileName contains "want_to_cry"
 | summarize FileCount = count(), 
             DirectoryCount = dcount(FolderPath),
             FirstSeen = min(Timestamp),
